@@ -64,7 +64,8 @@ public class GiteaSCMSourceRequest extends SCMSourceRequest {
     private Iterable<GiteaPullRequest> pullRequests;
     @CheckForNull
     private Iterable<GiteaBranch> branches;
-    // TODO private Iterable<GiteaTag> tags;
+    @CheckForNull
+    private Iterable<GiteaTag> tags;
     /**
      * The repository collaborator names or {@code null} if not provided.
      */

@@ -177,6 +177,11 @@ public class GiteaSCMSource extends AbstractGitSCMSource {
                 String revision = c.fetchBranch(repoOwner, repository, head.getName()).getCommit().getId();
                 listener.getLogger().format("Current revision of branch %s is %s%n", head.getName(), revision);
                 return new BranchSCMRevision((BranchSCMHead) head, revision);
+            } else if (head instanceof TagSCMHead) {
+                listener.getLogger().format("Querying the current revision of tag %s...%n", head.getName());
+                String revision = c.fetchTag(repoOwner, repository, head.getName()).getCommit().getId();
+                listener.getLogger().format("Current revision of tag %s is %s%n", head.getName(), revision);
+                return new TagSCMRevision((TagSCMHead) head, revision);
             } else if (head instanceof PullRequestSCMHead) {
                 PullRequestSCMHead h = (PullRequestSCMHead) head;
                 listener.getLogger().format("Querying the current revision of pull request #%s...%n", h.getId());
@@ -228,16 +233,19 @@ public class GiteaSCMSource extends AbstractGitSCMSource {
                 if (request.isFetchPRs()) {
                     if (giteaRepository.isMirror()) {
                         listener.getLogger().format("%n  Ignoring pull requests as repository is a mirror...%n");
+                        request.setPullRequests(Collections.<GiteaPullRequest>emptyList());
                     } else {
                         request.setPullRequests(c.fetchPullRequests(giteaRepository));
                     }
                 }
-                // TODO if (request.isFetchTags()) { ... }
+                if (request.isFetchTags()) {
+                    request.setTags(c.fetchTags(giteaRepository));
+                }
 
                 if (request.isFetchBranches()) {
                     int count = 0;
                     listener.getLogger().format("%n  Checking branches...%n");
-                    for (final GiteaBranch b : c.fetchBranches(giteaRepository)) {
+                    for (final GiteaBranch b : request.getBranches()) {
                         count++;
                         listener.getLogger().format("%n    Checking branch %s%n",
                                 HyperlinkNote.encodeTo(
@@ -286,8 +294,7 @@ public class GiteaSCMSource extends AbstractGitSCMSource {
                         && request.getOriginPRStrategies().isEmpty())) {
                     int count = 0;
                     listener.getLogger().format("%n  Checking pull requests...%n");
-                    for (final GiteaPullRequest p : c
-                            .fetchPullRequests(giteaRepository, EnumSet.of(GiteaIssueState.OPEN))) {
+                    for (final GiteaPullRequest p : request.getPullRequests()) {
                         count++;
                         listener.getLogger().format("%n  Checking pull request %s%n",
                                 HyperlinkNote.encodeTo(
@@ -366,6 +373,54 @@ public class GiteaSCMSource extends AbstractGitSCMSource {
                         }
                     }
                     listener.getLogger().format("%n  %d pull requests were processed%n", count);
+                }
+                if (request.isFetchTags()) {
+                    int count = 0;
+                    listener.getLogger().format("%n  Checking tags...%n");
+                    for (final GiteaBranch b : request.getTags()) {
+                        count++;
+                        listener.getLogger().format("%n    Checking branch %s%n",
+                                HyperlinkNote.encodeTo(
+                                        UriTemplate.buildFromTemplate(giteaRepository.getHtmlUrl())
+                                                .literal("/src")
+                                                .path("branch")
+                                                .build()
+                                                .set("branch", b.getName())
+                                                .expand(),
+                                        b.getName()
+                                )
+                        );
+                        if (request.process(new BranchSCMHead(b.getName()),
+                                new SCMSourceRequest.RevisionLambda<BranchSCMHead, BranchSCMRevision>() {
+                                    @NonNull
+                                    @Override
+                                    public BranchSCMRevision create(@NonNull BranchSCMHead head)
+                                            throws IOException, InterruptedException {
+                                        return new BranchSCMRevision(head, b.getCommit().getId());
+                                    }
+                                }, new SCMSourceRequest.ProbeLambda<BranchSCMHead, BranchSCMRevision>() {
+                                    @NonNull
+                                    @Override
+                                    public SCMSourceCriteria.Probe create(@NonNull BranchSCMHead head,
+                                                                          @Nullable BranchSCMRevision revision)
+                                            throws IOException, InterruptedException {
+                                        return createProbe(head, revision);
+                                    }
+                                }, new SCMSourceRequest.Witness() {
+                                    @Override
+                                    public void record(@NonNull SCMHead head, SCMRevision revision, boolean isMatch) {
+                                        if (isMatch) {
+                                            listener.getLogger().format("    Met criteria%n");
+                                        } else {
+                                            listener.getLogger().format("    Does not meet criteria%n");
+                                        }
+                                    }
+                                })) {
+                            listener.getLogger().format("%n  %d branches were processed (query completed)%n", count);
+                            return;
+                        }
+                    }
+                    listener.getLogger().format("%n  %d branches were processed%n", count);
                 }
             }
         }
